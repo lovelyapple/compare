@@ -65,7 +65,8 @@ struct OBJECT {			//--- オブジェクト用構造体
 	D3DXMATRIX	matrix;				// 変換マトリックス
 	int			morph_count;		// モーフィング計算用時間カウント値
 	int			morph_dir;			// モーフィングの方向
-	int			morph_time[2];		// モーフィングに要する時間
+	int			morph_index;		// モーフィング参照インディクス
+	int			morph_time[MODEL_MAX];		// モーフィングに要する時間
 };
 
 //=======================================================================================
@@ -187,6 +188,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		case '1':		g_DrawMode = 0;				break;		// １つ目のモデルを描画
 		case '2':		g_DrawMode = 1;				break;		// ２つ目のモデルを描画
 		case '3':		g_DrawMode = 2;				break;		// モーフィングモデルを描画
+		case '4':		g_DrawMode = 3;				break;		// ３つ目のモデルを描画
 		case 'W':		g_Wireframe = !g_Wireframe;	break;		// ワイヤーフレームの切り替え
 		case VK_ESCAPE:	DestroyWindow(hWnd);		break;		// [ESC]キーが押された
 		}
@@ -365,7 +367,7 @@ int SetModelData(HWND hWnd)
 	WORD*		pIndices_2;
 
 	static LPCTSTR filename[] = {
-		_T("../ishi.x"), _T("../ishi2.x")		// モデル（Ｘファイル）のファイル名（２個）
+		_T("../ishi.x"), _T("../ishi2.x"),_T("../ishi3.x")		// モデル（Ｘファイル）のファイル名（２個）
 	};
 	int			i;
 
@@ -431,8 +433,10 @@ void ExecPat()
 		// モーフィング用変数の初期化
 		pt->morph_dir = 0;
 		pt->morph_count = 0;
+		pt->morph_index = 0;
 		pt->morph_time[0] = 0;
 		pt->morph_time[1] = 30;	// ここで変形時間が決まる
+		pt->morph_time[2] = 60;	
 		pt->status = 1;
 		// THRU
 	case 1:		// Move
@@ -469,15 +473,60 @@ void ExecPat()
 		//　　現在の時間      g_Object.morph_count
 		//
 		//**************************************************************************
+		//(1)
+		VERTEX *p0, *p1, *p;
+		p0 = pt_vertex[pt->morph_index];
+		p1 = pt_vertex[pt->morph_index + 1];
+		p  = morph_vertex;
 
+		//(2)
+		float d;
+		d = (float)(pt->morph_count - pt->morph_time[pt->morph_index])
+			/(pt->morph_time[pt->morph_index+1] - pt->morph_time[pt->morph_index]);
+		
+		//(6)
+		int i;
+		for(i=0; i<num_vertex[0]; ++i){
 
-
+			//(3),(4)
+			p->x = p0->x + (p1->x - p0->x) * d;
+			p->y = p0->y + (p1->y - p0->y) * d;
+			p->z = p0->z + (p1->z - p0->z) * d;
+			//法線ベクトルの補間
+			p->nx = p0->nx + (p1->nx - p0->nx) * d;
+			p->ny = p0->ny + (p1->ny - p0->ny) * d;
+			p->nz = p0->nz + (p1->nz - p0->nz) * d;
+			float l = sqrtf(p->nx * p->nx + p->ny * p->ny + p->nz * p->nz);
+			p->nx /= l;
+			p->ny /= l;
+			p->nz /= l;
+			//(5)
+			++p0,++p1,++p;
+		}
 		switch (pt->morph_dir) {
 		case 0:			// 0 > 1
-			if(++(pt->morph_count) >= pt->morph_time[1]) pt->morph_dir = 1;	// 方向を反転
+			if(++(pt->morph_count) >= pt->morph_time[pt->morph_index+1]){
+				if(pt->morph_index < MODEL_MAX - 2 ){
+					pt->morph_index++;
+				}else{
+				
+				pt->morph_dir = 1;	// 方向を反転
+				}
+			}
 			break;
 		case 1:			// 1 > 0
-			if(--(pt->morph_count) <= 0                ) pt->morph_dir = 0;	// 方向を反転
+			if(--(pt->morph_count) <=pt->morph_time[pt->morph_index]){
+				if(pt->morph_index > 0 ){
+					pt->morph_index--;
+				}else{
+				pt->morph_dir = 0;// 方向を反転
+				/*
+				//方向反転しない
+				pt->morph_index=0;
+				pt->morph_count=0;
+				*/
+				}
+			}
 			break;
 		}
 		break;
@@ -503,29 +552,17 @@ void DrawPat()
 	}
 
 	switch (g_DrawMode) {
-	case 0:
-		/*
-		g_pD3DDevice->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST,		// モデル０を描画
-						0, num_vertex[0], num_face[0], pt_index[0],
-						D3DFMT_INDEX16, pt_vertex[0], sizeof(VERTEX));
-						*/
-		break;
+	case 0:	
 	case 1:
-		/*
-		g_pD3DDevice->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST,		// モデル１を描画
-						0, num_vertex[1], num_face[1], pt_index[1],
-						D3DFMT_INDEX16, pt_vertex[1], sizeof(VERTEX));
-						*/
-		break;
 	case 2:
+		g_pD3DDevice->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST,		// モーフィングモデルを描画
+			0, num_vertex[g_DrawMode], num_face[g_DrawMode],pt_index[g_DrawMode],
+			D3DFMT_INDEX16, pt_vertex[g_DrawMode], sizeof(VERTEX));
+		break;
+	case 3:
 		g_pD3DDevice->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST,		// モーフィングモデルを描画
 						0, num_vertex[0], num_face[0], morph_index,
 						D3DFMT_INDEX16, morph_vertex, sizeof(VERTEX));
-		break;
-	case 3:
-		g_pD3DDevice->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST,
-			0,num_vertex[0],num_face[0],morph_index,
-			D3DFMT_INDEX16,morph_vertex,sizeof(VERTEX));
 		break;
 	}
 }
